@@ -1,11 +1,11 @@
 plugins {
     id 'com.android.library'
-    id 'kotlin-android'
-    id 'kotlin-parcelize'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.parcelize'
 }
 
 android {
-    namespace 'one.yufz.hmspush.common'
+    namespace 'com.aloys23.mipush.common'
     compileSdk COMPILE_SDK
 
     defaultConfig {
@@ -27,11 +27,14 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
     kotlinOptions {
-        jvmTarget = '1.8'
+        jvmTarget = '17'
+    }
+    buildFeatures {
+        buildConfig true
     }
 }
 

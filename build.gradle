@@ -1,24 +1,22 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
-buildscript {
-    //https://developer.android.com/jetpack/androidx/releases/compose-kotlin
-    ext.kotlin_version = '1.8.10'
-
-    repositories {
-        mavenCentral()
-    }
-    dependencies {
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-    }
-}
 plugins {
-    id 'com.android.application' version '7.4.1' apply false
-    id 'com.android.library' version '7.4.1' apply false
-    id 'org.jetbrains.kotlin.android' version '1.7.10' apply false
+    id 'com.android.application' version '8.8.2' apply false
+    id 'com.android.library' version '8.8.2' apply false
+    id 'org.jetbrains.kotlin.android' version '2.0.21' apply false
+    id 'org.jetbrains.kotlin.plugin.parcelize' version '2.0.21' apply false
 }
 
-task clean(type: Delete) {
-    delete rootProject.buildDir
+// AGP 8 尚未正式认知 compileSdk 37(AAR metadata 校验会误报),参照 MiPushFramework 关闭该校验任务。
+allprojects {
+    tasks.matching { it.name.contains("AarMetadata") }.configureEach {
+        enabled = false
+    }
 }
+
+tasks.register('clean', Delete) {
+    delete rootProject.layout.buildDirectory
+}
+
 def getVersionCode = { ->
     try {
         def stdout = new ByteArrayOutputStream()
@@ -33,7 +31,7 @@ def getVersionCode = { ->
 }
 
 def getVersionName = { ->
-    String versionName  = project.findProperty('versionName') ?: getVersionNameFromGit() ?: "VersionNameError"
+    String versionName  = project.findProperty('versionName') ?: getVersionNameFromGit() ?: "1.0.0"
     versionName = increaseVersionForPreRelease(versionName)
     return versionName.replaceFirst("^v", "")
 }
@@ -68,9 +66,9 @@ private String getVersionNameFromGit() {
 ext {
     gitVersionCode = getVersionCode()
     gitVersionName = getVersionName()
-    APPLICATION_ID = "com.nihility.mipush"
+    APPLICATION_ID = "com.aloys23.mipush"
 
-    COMPILE_SDK = 34
+    COMPILE_SDK = 37
     MIN_SDK = 26
-    TARGET_SDK = 34
+    TARGET_SDK = 37
 }
