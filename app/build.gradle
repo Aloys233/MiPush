@@ -22,7 +22,12 @@ android {
     }
 
     signingConfigs {
-        release {
+        // 与 MiPushFramework 一致:debug 与 release 都用这个 signingConfig。
+        // 没配置正式密钥(local.properties 里没有 STORE_FILE_PATH)时,保留 AGP 默认的 debug keystore,
+        // 这样 release 也能装;CI 里若写入了 STORE_FILE_PATH 等,则改用正式密钥签名。
+        debug {
+            v1SigningEnabled true
+            v2SigningEnabled true
             def locale, keystorePwd, alias, pwd
             if (project.rootProject.file('local.properties').exists()) {
                 Properties properties = new Properties()
@@ -32,7 +37,7 @@ android {
                 pwd = properties.getProperty("KEY_PASSWORD")
                 keystorePwd = properties.getProperty("STORE_PASSWORD")
             }
-            if (locale != null) {
+            if (locale != null && file(locale).exists()) {
                 storeFile file(locale)
                 storePassword keystorePwd
                 keyAlias alias
@@ -43,16 +48,10 @@ android {
 
     buildTypes {
         debug {
-            if (signingConfigs.release.storeFile != null &&
-                    signingConfigs.release.storeFile.exists()) {
-                signingConfig signingConfigs.release
-            }
+            signingConfig signingConfigs.debug
         }
         release {
-            if (signingConfigs.release.storeFile != null &&
-                    signingConfigs.release.storeFile.exists()) {
-                signingConfig signingConfigs.release
-            }
+            signingConfig signingConfigs.debug
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
