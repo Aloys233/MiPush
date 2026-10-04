@@ -1,37 +1,61 @@
 package com.aloys23.mipush.hook
 
-import de.robv.android.xposed.IXposedHookLoadPackage
-import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam
-import com.aloys23.mipush.common.ANDROID_PACKAGE_NAME
+import android.os.Build
 import com.aloys23.mipush.common.MIPUSH_CORE_PROCESS
 import com.aloys23.mipush.common.MIPUSH_PACKAGE_NAME
 import com.aloys23.mipush.common.doOnce
 import com.aloys23.mipush.hook.fakedevice.FakeDevice
 import com.aloys23.mipush.hook.mipush.HookMIPUSH
 import com.aloys23.mipush.hook.system.HookSystemService
+import com.aloys23.xposed.XC_LoadPackage
+import com.aloys23.xposed.XposedBridge
+import io.github.libxposed.api.XposedModule
+import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam
+import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam
+import io.github.libxposed.api.XposedModuleInterface.SystemServerStartingParam
+import org.lsposed.hiddenapibypass.HiddenApiBypass
 
 
-class XposedMod : IXposedHookLoadPackage {
+class XposedMod : XposedModule() {
     companion object {
         private const val TAG = "XposedMod"
     }
 
-    @Throws(Throwable::class)
-    override fun handleLoadPackage(lpparam: LoadPackageParam) {
-        doOnce(lpparam.classLoader) {
-            hook(lpparam)
+    private var processName: String? = null
+
+    override fun onModuleLoaded(param: ModuleLoadedParam) {
+        XposedBridge.install(this)
+        processName = param.processName
+        // 迁移后 shim 全面改用反射(ActivityThread、SystemProperties、Build 字段等),
+        // 必须在每个进程开启隐藏 API 豁免。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            try {
+                HiddenApiBypass.addHiddenApiExemptions("")
+            } catch (t: Throwable) {
+                XLog.e(TAG, "addHiddenApiExemptions failed", t)
+            }
         }
+        XLog.d(TAG, "onModuleLoaded process=${param.processName} systemServer=${param.isSystemServer}")
     }
 
-    private fun hook(lpparam: LoadPackageParam) {
-        XLog.d(TAG, "Loaded app: " + lpparam.packageName + " process:" + lpparam.processName)
+    // onPackageReady 在 classloader 就绪、Application 创建之前触发,且 minSdk 26 下也可用,
+    // 语义最接近传统 handleLoadPackage。
+    override fun onPackageReady(param: PackageReadyParam) {
+        val lpparam = XC_LoadPackage.LoadPackageParam(
+            packageName = param.packageName,
+            processName = processName,
+            classLoader = param.classLoader,
+        )
+        doOnce(lpparam.classLoader) { hook(lpparam) }
+    }
 
-        // system_server 的 processName 是 "system"(甚至为 null),但其 packageName 是 "android"。
-        // 必须按 packageName 判断,否则会把系统进程当成普通应用去 FakeDevice。
-        if (lpparam.packageName == ANDROID_PACKAGE_NAME) {
-            HookSystemService().hook(lpparam.classLoader)
-            return
-        }
+    // system_server 走这里,替代传统的 packageName == "android" 分支。
+    override fun onSystemServerStarting(param: SystemServerStartingParam) {
+        HookSystemService().hook(param.classLoader)
+    }
+
+    private fun hook(lpparam: XC_LoadPackage.LoadPackageParam) {
+        XLog.d(TAG, "Loaded app: " + lpparam.packageName + " process:" + lpparam.processName)
 
         if (lpparam.packageName == MIPUSH_PACKAGE_NAME) {
             if (lpparam.processName == MIPUSH_CORE_PROCESS) {

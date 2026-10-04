@@ -1,7 +1,7 @@
 package com.aloys23.mipush.hook.fakedevice
 
 import android.app.Application
-import de.robv.android.xposed.callbacks.XC_LoadPackage
+import com.aloys23.xposed.XC_LoadPackage
 import com.aloys23.xposed.hookMethod
 
 class CoolApk : XGPush() {

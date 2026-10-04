@@ -4,8 +4,8 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationChannelGroup
 import android.service.notification.StatusBarNotification
-import de.robv.android.xposed.XposedHelpers
-import de.robv.android.xposed.XposedHelpers.ClassNotFoundError
+import com.aloys23.xposed.XposedHelpers
+import com.aloys23.xposed.XposedHelpers.ClassNotFoundError
 import com.aloys23.mipush.hook.XLog
 import com.aloys23.mipush.hook.mipush.nm.SystemNotificationManager
 import com.aloys23.mipush.hook.system.HookSystemService

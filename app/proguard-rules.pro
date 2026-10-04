@@ -1,4 +1,15 @@
-# Add project specific ProGuard rules here.
+# libxposed API 102 模块入口类需保留，java_init.list 内的类名需同步混淆后名称。
+-keep,allowoptimization,allowobfuscation public class * extends io.github.libxposed.api.XposedModule {
+    public <init>();
+}
+-adaptresourcefilecontents META-INF/xposed/java_init.list
+# 伪设备处理器:保留类与无参构造,防止 R8 合并/改写导致运行时实例化失败。
+-keep class * implements com.aloys23.mipush.hook.fakedevice.IFakeDevice {
+    public <init>();
+}
+-dontwarn io.github.libxposed.annotation.**
+-dontwarn io.github.libxposed.**
+
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
 #

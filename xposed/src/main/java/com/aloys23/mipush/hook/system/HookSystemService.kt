@@ -1,9 +1,9 @@
 package com.aloys23.mipush.hook.system
 
-import android.app.AndroidAppHelper
 import android.app.NotificationManager
 import android.os.Binder
-import de.robv.android.xposed.XposedHelpers
+import com.aloys23.xposed.AndroidAppHelper
+import com.aloys23.xposed.XposedHelpers
 import com.aloys23.mipush.common.IS_SYSTEM_HOOK_READY
 import com.aloys23.mipush.hook.XLog
 import com.aloys23.xposed.callMethod
@@ -32,7 +32,7 @@ class HookSystemService {
         classNotificationManagerService.hookMethod("onStart") {
             doAfter {
                 XLog.d(TAG, "onStart invoked")
-                val stubClass = thisObject.get<Any>("mService").javaClass
+                val stubClass = thisObject!!.get<Any>("mService").javaClass
                 hookPermission(stubClass)
                 hookSystemReadyFlag(stubClass)
             }

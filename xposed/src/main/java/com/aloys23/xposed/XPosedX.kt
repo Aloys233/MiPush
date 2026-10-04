@@ -1,122 +1,49 @@
 package com.aloys23.xposed
 
-
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
-import de.robv.android.xposed.XposedHelpers
-import java.lang.reflect.Method
-
-
-fun Any.callMethod(methodName: String, vararg args: Any): Any? =
-    XposedHelpers.callMethod(this, methodName, *args)
-
-fun Any.callMethod(methodName: String, parameterTypes: Array<Class<*>>, vararg args: Any): Any? =
-    XposedHelpers.callMethod(this, methodName, parameterTypes, *args)
-
-fun Class<*>.callStaticMethod(methodName: String, vararg args: Any): Any? =
-    XposedHelpers.callStaticMethod(this, methodName, *args)
-
-fun Class<*>.callStaticMethod(
-    methodName: String,
-    parameterTypes: Array<Class<*>>,
-    vararg args: Any
-): Any? = XposedHelpers.callStaticMethod(this, methodName, parameterTypes, *args)
+import io.github.libxposed.api.XposedInterface
+import java.lang.reflect.Executable
 
 typealias HookAction = XC_MethodHook.MethodHookParam.() -> Unit
 typealias ReplaceAction = XC_MethodHook.MethodHookParam.() -> Any?
 typealias HookCallback = HookContext.() -> Unit
 
+// ---------------------------------------------------------------------------
+// Hook 注册(在 libxposed 的 hook().intercept() 之上复刻传统 DSL)
+// ---------------------------------------------------------------------------
+
+fun Executable.hook(callback: HookCallback) {
+    XposedBridge.require()
+        .hook(this)
+        // PASSTHROUGH:用户回调已在本类的拦截器内 try/catch;只有"故意抛出的 throwable"
+        // 和"原方法异常"才会逃逸,最贴近传统 XposedBridge 的语义。
+        .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+        .intercept(MethodHook(callback))
+}
+
 fun Class<*>.hookMethod(methodName: String, vararg parameterTypes: Class<*>, callback: HookCallback) =
-    XposedHelpers.findAndHookMethod(this, methodName, *parameterTypes, MethodHook(callback))
-
-fun Class<*>.hookConstructor(vararg parameterTypes: Class<*>, callback: HookCallback) =
-    XposedHelpers.findAndHookConstructor(this, *parameterTypes, MethodHook(callback))
-
-fun Class<*>.hookAllConstructor(callback: HookCallback) =
-    XposedBridge.hookAllConstructors(this, MethodHook(callback))
-
-fun hookMethod(className: String, classLoader: ClassLoader, methodName: String, vararg parameterTypes: Class<*>, callback: HookCallback) =
-    XposedHelpers.findAndHookMethod(className, classLoader, methodName, *parameterTypes, MethodHook(callback))
-
-fun hookConstructor(className: String, classLoader: ClassLoader, methodName: String, vararg parameterTypes: Class<*>, callback: HookCallback) =
-    XposedHelpers.findAndHookConstructor(className, classLoader, methodName, *parameterTypes, MethodHook(callback))
-
-fun Method.hook(callback: HookCallback) = XposedBridge.hookMethod(this, MethodHook(callback))
-
-fun Class<*>.hookAllMethods(methodName: String, callback: HookCallback) =
-    XposedBridge.hookAllMethods(this, methodName, MethodHook(callback))
-
-class MethodHook(callback: HookCallback) : XC_MethodHook() {
-    private val context = HookContext(this).apply(callback)
-
-    override fun beforeHookedMethod(param: MethodHookParam) {
-        super.beforeHookedMethod(param)
-
-        context.replaceAction?.let {
-            if (context.needHook?.invoke() == false) {
-                return
-            }
-            try {
-                param.result = it.invoke(param)
-            } catch (t: Throwable) {
-                param.throwable = t
-            }
-            return
-        }
-
-        context.beforeAction?.invoke(param)
-    }
-
-    override fun afterHookedMethod(param: MethodHookParam) {
-        super.afterHookedMethod(param)
-        context.afterAction?.invoke(param)
-    }
-
-}
-
-class HookContext(private val methodHook: MethodHook) {
-    internal var beforeAction: HookAction? = null
-        private set
-
-    internal var afterAction: HookAction? = null
-        private set
-
-    internal var replaceAction: ReplaceAction? = null
-        private set
-
-    internal var needHook: (() -> Boolean)? = null
-        private set
-
-    fun doBefore(action: HookAction) {
-        this.beforeAction = action
-    }
-
-    fun doAfter(action: HookAction) {
-        this.afterAction = action
-    }
-
-    fun replace(action: ReplaceAction) {
-        this.replaceAction = action
-    }
-
-    fun replace(hookCheck : () -> Boolean, action: ReplaceAction) {
-        this.needHook = hookCheck
-        this.replaceAction = action
-    }
-
-    fun XC_MethodHook.MethodHookParam.unhook() {
-        XposedBridge.unhookMethod(this.method, methodHook)
-    }
-}
-
-fun Class<*>.newInstance(vararg args: Any): Any = XposedHelpers.newInstance(this, *args)
-
-fun Class<*>.newInstance(parameterTypes: Array<Class<*>>, vararg args: Any): Any =
-    XposedHelpers.newInstance(this, parameterTypes, *args)
+    XposedHelpers.findMethodExact(this, methodName, *parameterTypes).hook(callback)
 
 fun ClassLoader.findClass(className: String): Class<*> = XposedHelpers.findClass(className, this)
 
-inline fun <reified T> Any.getOrNull(name: String): T? = getField(name, T::class.java)
+// ---------------------------------------------------------------------------
+// 方法调用 DSL
+// ---------------------------------------------------------------------------
+
+fun Any.callMethod(methodName: String, vararg args: Any?): Any? =
+    XposedHelpers.callMethod(this, methodName, *args)
+
+fun Any.callMethod(methodName: String, parameterTypes: Array<Class<*>>, vararg args: Any?): Any? =
+    XposedHelpers.callMethod(this, methodName, parameterTypes, *args)
+
+fun Class<*>.callStaticMethod(methodName: String, vararg args: Any?): Any? =
+    XposedHelpers.callStaticMethod(this, methodName, *args)
+
+fun Class<*>.callStaticMethod(methodName: String, parameterTypes: Array<Class<*>>, vararg args: Any?): Any? =
+    XposedHelpers.callStaticMethod(this, methodName, parameterTypes, *args)
+
+// ---------------------------------------------------------------------------
+// 字段访问 DSL
+// ---------------------------------------------------------------------------
 
 inline operator fun <reified T> Any.get(name: String): T = getField(name, T::class.java)!!
 
@@ -125,7 +52,7 @@ inline operator fun <reified T> Any.set(name: String, value: T?) = setField(name
 fun <T> Any.getField(name: String, fieldClazz: Class<T>): T? {
     val obj = if (this is Class<*>) null else this
     val thisClass = if (this is Class<*>) this else this.javaClass
-    val field = findField(thisClass, name)
+    val field = XposedHelpers.findField(thisClass, name)
 
     val value = when (fieldClazz) {
         Boolean::class.java -> field.getBoolean(obj)
@@ -164,7 +91,7 @@ fun <T> Any.setField(name: String, value: T?, fieldClass: Class<T>) {
     val obj = if (this is Class<*>) null else this
     val thisClass = if (this is Class<*>) this else this.javaClass
 
-    val field = findField(thisClass, name)
+    val field = XposedHelpers.findField(thisClass, name)
     field.clearFinalModifier()
 
     when (fieldClass) {
@@ -180,4 +107,101 @@ fun <T> Any.setField(name: String, value: T?, fieldClass: Class<T>) {
     }
 }
 
-private fun findField(clazz: Class<*>, fieldName: String) = XposedHelpers.findField(clazz, fieldName)
+// ---------------------------------------------------------------------------
+// 回调上下文(doBefore / doAfter / replace)
+// ---------------------------------------------------------------------------
+
+class HookContext {
+    internal var beforeAction: HookAction? = null
+        private set
+
+    internal var afterAction: HookAction? = null
+        private set
+
+    internal var replaceAction: ReplaceAction? = null
+        private set
+
+    internal var needHook: (() -> Boolean)? = null
+        private set
+
+    fun doBefore(action: HookAction) {
+        this.beforeAction = action
+    }
+
+    fun doAfter(action: HookAction) {
+        this.afterAction = action
+    }
+
+    fun replace(action: ReplaceAction) {
+        this.replaceAction = action
+    }
+
+    fun replace(hookCheck: () -> Boolean, action: ReplaceAction) {
+        this.needHook = hookCheck
+        this.replaceAction = action
+    }
+}
+
+/**
+ * 把传统 before/after/replace 回调语义映射到 libxposed 的拦截器链:
+ * - replace:直接返回自定义值(不 proceed);异常写入 throwable 并抛出。
+ * - before 设置 result 时短路原方法;修改 args 通过 proceed(newArgs) 生效。
+ * - after 在 proceed 之后运行,可读取/覆盖 result。
+ * - 原方法异常写入 throwable 并在最后抛出。
+ * 用户回调自身的异常按传统 XposedBridge 行为记录日志后吞掉。
+ */
+class MethodHook(callback: HookCallback) : XposedInterface.Hooker {
+    private val context = HookContext().apply(callback)
+
+    override fun intercept(chain: XposedInterface.Chain): Any? {
+        val param = XC_MethodHook.MethodHookParam(
+            method = chain.executable,
+            thisObject = chain.thisObject,
+            args = chain.args.toTypedArray(),
+        )
+
+        val replaceAction = context.replaceAction
+        if (replaceAction != null) {
+            if (context.needHook?.invoke() == false) {
+                return chain.proceed(param.args)
+            }
+            return try {
+                val replaced = replaceAction(param)
+                param.assignResult(replaced)
+                replaced
+            } catch (t: Throwable) {
+                param.throwable = t
+                throw t
+            }
+        }
+
+        context.beforeAction?.let { action ->
+            try {
+                action(param)
+            } catch (t: Throwable) {
+                XposedBridge.log(t)
+            }
+        }
+
+        if (!param.throwableSet && !param.resultSet) {
+            try {
+                param.assignResult(chain.proceed(param.args))
+            } catch (t: Throwable) {
+                param.throwable = t
+            }
+        }
+
+        context.afterAction?.let { action ->
+            try {
+                action(param)
+            } catch (t: Throwable) {
+                XposedBridge.log(t)
+            }
+        }
+
+        if (param.throwableSet) {
+            throw param.throwable!!
+        }
+        return param.result
+    }
+}

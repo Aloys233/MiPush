@@ -1,54 +1,20 @@
 package com.aloys23.mipush.hook.fakedevice
 
-import de.robv.android.xposed.callbacks.XC_LoadPackage
+import com.aloys23.xposed.XC_LoadPackage
 import com.aloys23.mipush.hook.XLog
-import com.aloys23.xposed.hookMethod
-import miui.external.SdkHelper
 
 open class Common : IFakeDevice {
     companion object {
         private const val TAG = "Common"
     }
 
+    // 与原版 HMSPush 的 Common 保持一致:只做属性伪造(SystemProperties/Runtime.exec/Build 字段),
+    // 不 hook Class.forName 之类的全局方法。
+    // 之前在这里 hook Class.forName 伪造 miui.os.Build/MiuiInit,会把闲鱼(阿里系 Mtop/preload)
+    // 搞到启动即崩(FishRuntimeExeption: MtopInitializeMonitor NPE)。
     override fun fake(lpparam: XC_LoadPackage.LoadPackageParam): Boolean {
         XLog.d(TAG, "fake() called with: packageName = ${lpparam.packageName}")
         fakeAllBuildInProperties()
-        fakeClass(lpparam)
         return true
-    }
-
-    private fun fakeClass(lpparam: XC_LoadPackage.LoadPackageParam) {
-        var isMIUI = false
-        try {
-            // check MIUI environment
-            Class.forName("miui.os.Build", false, lpparam.classLoader)
-            isMIUI = true
-        } catch (_: Throwable) {
-        }
-        if (isMIUI) {
-            return
-        }
-
-        val classMap: Map<String, Class<out Any>> = mapOf(
-            "miui.os.Build" to Object::class.java,
-            SdkHelper::class.java.name to SdkHelper::class.java,
-        )
-        Class::class.java.hookMethod(
-            "forName",
-            String::class.java,
-            Boolean::class.java,
-            ClassLoader::class.java
-        ) {
-            doBefore {
-                var requestClass = args[0]
-                val returnClass = classMap[requestClass]
-                if (returnClass != null) {
-                    XLog.d(TAG, "forHook $requestClass")
-                    result = returnClass
-                } else {
-                    XLog.t(TAG, "forName $requestClass")
-                }
-            }
-        }
     }
 }

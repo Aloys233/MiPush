@@ -8,16 +8,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 private const val TAG = "FakeProperties"
 
 enum class Property(val entry: Pair<String, String>) {
-    EMUI_API("ro.build.hw_emui_api_level" to ""),
-    EMUI_VERSION("ro.build.version.emui" to ""),
     BRAND("ro.product.brand" to "Xiaomi"),
     MANUFACTURER("ro.product.manufacturer" to "Xiaomi"),
     MIUI_VERSION_NAME("ro.miui.ui.version.name" to "V130"),
     MIUI_VERSION_CODE("ro.miui.ui.version.code" to "13"),
-    FLYME_VERSION_NAME("ro.build.flyme.version" to ""),
-    FLYME_VERSION_CODE("ro.flyme.version.id" to ""),
-    COLOROS_BUILD_VERSION_OLD("ro.build.version.opporom" to ""),
-    COLOROS_BUILD_VERSION("ro.build.version.oplusrom" to ""),
 
     REGION_MIUI("ro.miui.region" to "CN"),
     REGION_PRODUCT_LOCALE("ro.product.locale.region" to "CN"),
@@ -74,7 +68,9 @@ fun fakeProperty(vararg properties: Pair<String, String>) {
 
     if (hooked.getAndSet(true)) return
 
-    val classSystemProperties = Build::class.java.classLoader.findClass("android.os.SystemProperties")
+    // Build 是 boot 类,Build::class.java.classLoader 为 null,直接 .findClass 会 NPE;
+    // 走 XposedHelpers.findClass 以兼容 null classLoader。
+    val classSystemProperties = XposedHelpers.findClass("android.os.SystemProperties", Build::class.java.classLoader)
 
     val callback: HookContext.() -> Unit = {
         doBefore {

@@ -67,6 +67,12 @@ android {
     buildFeatures {
         buildConfig true
     }
+    // libxposed 模块元数据放在 META-INF/xposed/*，AGP 默认资源合并规则会丢弃它，需显式 merges。
+    packaging {
+        resources {
+            merges += "META-INF/xposed/*"
+        }
+    }
 }
 
 dependencies {
@@ -74,5 +80,5 @@ dependencies {
     api project(":xposed")
 
     //remove this line will cause proguard to remove code from library module
-    compileOnly 'de.robv.android.xposed:api:82'
+    compileOnly 'io.github.libxposed:api:102.0.0'
 }

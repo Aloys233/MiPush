@@ -4,7 +4,8 @@ import android.app.*
 import android.os.Binder
 import android.os.Build
 import android.service.notification.StatusBarNotification
-import de.robv.android.xposed.XposedHelpers
+import com.aloys23.xposed.AndroidAppHelper
+import com.aloys23.xposed.XposedHelpers
 import com.aloys23.mipush.common.ANDROID_PACKAGE_NAME
 import com.aloys23.mipush.hook.XLog
 import com.aloys23.xposed.callMethod

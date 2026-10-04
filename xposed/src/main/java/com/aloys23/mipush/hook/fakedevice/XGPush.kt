@@ -1,11 +1,10 @@
 package com.aloys23.mipush.hook.fakedevice
 
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
-import de.robv.android.xposed.XposedHelpers
-import de.robv.android.xposed.callbacks.XC_LoadPackage
 import com.aloys23.mipush.hook.XLog
+import com.aloys23.xposed.XC_LoadPackage
+import com.aloys23.xposed.XposedHelpers
 import com.aloys23.xposed.findClass
+import com.aloys23.xposed.hook
 import java.lang.reflect.Method
 
 open class XGPush : IFakeDevice {
@@ -34,24 +33,24 @@ open class XGPush : IFakeDevice {
     private fun fakeChannels(classChannelUtils: Class<*>): Boolean {
         XLog.d(TAG, "fakeChannels() called")
 
-        classChannelUtils.declaredMethods.forEach {
-            XposedBridge.hookMethod(it, object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    val method = param.method as Method
+        classChannelUtils.declaredMethods.forEach { target ->
+            target.hook {
+                doBefore {
+                    val method = this.method as Method
 
                     if (method.name == "getMiuiVersionCode") {
-                        param.result = "13"
+                        result = "13"
                     } else if (method.name == "getMiuiVersionName") {
-                        param.result = "V130"
+                        result = "V130"
                     } else if (method.name == "isBrandXiaoMi") {
-                        param.result = true
+                        result = true
                     } else if (method.returnType == Boolean::class.java) {
-                        param.result = false
+                        result = false
                     } else if (method.returnType == String::class.java) {
-                        param.result = ""
+                        result = ""
                     }
                 }
-            })
+            }
         }
         return true
     }

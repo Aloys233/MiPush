@@ -1,8 +1,8 @@
 package com.aloys23.mipush.hook
 
 import android.util.Log
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
+import com.aloys23.xposed.XC_MethodHook
+import com.aloys23.xposed.XposedBridge
 import com.aloys23.mipush.xposed.BuildConfig
 import java.lang.reflect.Method
 

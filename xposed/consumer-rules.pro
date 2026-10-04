@@ -1,8 +1,2 @@
-# Proguard for Xposed.
--keep class * implements de.robv.android.xposed.IXposedHookZygoteInit
--keep class * implements de.robv.android.xposed.IXposedHookLoadPackage
--keep class * implements de.robv.android.xposed.IXposedHookInitPackageResources
-
--keep class com.aloys23.mipush.hook.XposedMod{
-    *;
-}
+# libxposed API 102 模块不再需要传统 Xposed 接口的 keep 规则。
+# 入口类保留规则与 java_init.list 名称适配规则见 app/proguard-rules.pro。
