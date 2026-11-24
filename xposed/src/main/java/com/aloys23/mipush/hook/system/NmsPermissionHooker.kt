@@ -27,6 +27,7 @@ object NmsPermissionHooker {
     private const val TAG = "NmsPermissionHooker"
     private const val PER_USER_RANGE = 100_000L
     private const val PID_MASK = 0xffff_ffffL
+    private const val SENTINEL_NO_TOKEN = Long.MIN_VALUE
 
     private const val EXTRA_REQUEST_PROMOTED_ONGOING = "android.requestPromotedOngoing"
     private const val PERMISSION_POST_PROMOTED_NOTIFICATIONS = "android.permission.POST_PROMOTED_NOTIFICATIONS"
@@ -113,42 +114,69 @@ object NmsPermissionHooker {
         targetPackageNameParamIndex: Int,
         targetUidParamIndex: Int? = null,
         targetUserIdParamIndex: Int? = null,
+        afterExtra: (XC_MethodHook.MethodHookParam.() -> Unit)? = null,
         hookExtra: (XC_MethodHook.MethodHookParam.() -> Unit)? = null,
     ) {
-        val sentinelNoToken = Long.MIN_VALUE
         hook {
             doBefore {
                 if (fromMipush()) {
-                    val targetPkg = args.getOrNull(targetPackageNameParamIndex) as? String
-                    val tokenToSave = if (targetPkg != MIPUSH_PACKAGE_NAME) {
-                        val callingUid = Binder.getCallingUid()
-                        val targetUserId = resolveTargetUserId(
-                            args = args,
-                            callingUid = callingUid,
-                            targetUidParamIndex = targetUidParamIndex,
-                            targetUserIdParamIndex = targetUserIdParamIndex,
-                        )
-                        val oldToken = Binder.clearCallingIdentity()
+                    val callingUid = Binder.getCallingUid()
+                    val targetUserId = resolveTargetUserId(
+                        args = args,
+                        callingUid = callingUid,
+                        targetUidParamIndex = targetUidParamIndex,
+                        targetUserIdParamIndex = targetUserIdParamIndex,
+                    )
+                    val oldToken = Binder.clearCallingIdentity()
+                    if (targetUserId > 0) {
                         Binder.restoreCallingIdentity(systemIdentityForUser(targetUserId, Process.myPid()))
-                        oldToken
-                    } else {
-                        sentinelNoToken
                     }
-                    callingIdentityTokens.get()?.push(tokenToSave)
+                    callingIdentityTokens.get()?.push(oldToken)
                     hookExtra?.invoke(this)
+                } else {
+                    callingIdentityTokens.get()?.push(SENTINEL_NO_TOKEN)
                 }
             }
-        }
-        hook {
             doAfter {
                 val stack = callingIdentityTokens.get()
                 if (stack != null && stack.isNotEmpty()) {
                     val token = stack.pop()
-                    if (token != sentinelNoToken) {
+                    if (token != SENTINEL_NO_TOKEN) {
                         Binder.restoreCallingIdentity(token)
                     }
                 }
+                afterExtra?.invoke(this)
             }
+        }
+    }
+
+    private fun hookVoidSystemCheckMethods(startClass: Class<*>?) {
+        val checkMethodNames = setOf(
+            "enforceSystemOrSystemUI",
+            "enforceSystemOrSystemUIOrSamePackage",
+            "checkCallerIsSystem",
+            "checkCallerIsSystemOrSystemUi",
+            "checkCallerIsSystemOrSameApp",
+        )
+        var current: Class<*>? = startClass
+        while (current != null && current != Any::class.java && current != Binder::class.java) {
+            for (method in current.declaredMethods) {
+                if (method.isSynthetic || method.isBridge) continue
+                if (method.returnType != Void.TYPE) continue
+                if (method.name !in checkMethodNames) continue
+                try {
+                    method.hook {
+                        doBefore {
+                            if (fromMipush()) {
+                                result = null
+                            }
+                        }
+                    }
+                } catch (t: Throwable) {
+                    XLog.d(TAG, "skip check method ${current.simpleName}.${method.name}: ${t.message}")
+                }
+            }
+            current = current.superclass
         }
     }
 
@@ -161,20 +189,9 @@ object NmsPermissionHooker {
     }
 
     fun hook(classINotificationManager: Class<*>) {
-        // Android 17 Stub 入口调用者包名/用户校验
-        installStep("enforceSystemOrSystemUIOrSamePackage") {
-            findMethodExact(
-                classINotificationManager,
-                "enforceSystemOrSystemUIOrSamePackage",
-                String::class.java,
-                String::class.java,
-            ).hook {
-                doBefore {
-                    if (fromMipush()) {
-                        result = null
-                    }
-                }
-            }
+        // Android 17 Stub / NMS 入口系统调用者校验（覆盖所有重载）
+        installStep("stubSystemCheckMethods") {
+            hookVoidSystemCheckMethods(classINotificationManager)
         }
 
         // boolean canNotifyAsPackage(String callingPkg, String targetPkg, int userId);
@@ -233,7 +250,7 @@ object NmsPermissionHooker {
 
         // void enqueueNotificationWithTag(String pkg, String opPkg, String tag, int id, Notification notification, int userId)
         installStep("enqueueNotificationWithTag") {
-            val enqueueMethod = findMethodExact(
+            findMethodExact(
                 classINotificationManager,
                 "enqueueNotificationWithTag",
                 String::class.java,
@@ -242,8 +259,13 @@ object NmsPermissionHooker {
                 Int::class.java,
                 Notification::class.java,
                 Int::class.java,
-            )
-            enqueueMethod.hookWithPermission(0, targetUserIdParamIndex = 5) {
+            ).hookWithPermission(
+                targetPackageNameParamIndex = 0,
+                targetUserIdParamIndex = 5,
+                afterExtra = {
+                    currentPromotedTargetPkg.remove()
+                },
+            ) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     args[1] = ANDROID_PACKAGE_NAME
                 }
@@ -254,22 +276,27 @@ object NmsPermissionHooker {
                     currentPromotedTargetPkg.set(pkg)
                 }
             }
-            enqueueMethod.hook {
-                doAfter {
-                    currentPromotedTargetPkg.remove()
-                }
-            }
         }
 
         // void createNotificationChannelsForPackage(String pkg, int uid, in ParceledListSlice channelsList);
         installStep("createNotificationChannelsForPackage") {
-            findMethodExact(
-                classINotificationManager,
-                "createNotificationChannelsForPackage",
-                String::class.java,
-                Int::class.java,
-                findClass("android.content.pm.ParceledListSlice", null),
-            ).hookWithPermission(0, targetUidParamIndex = 1)
+            val primary = runCatching {
+                findMethodExact(
+                    classINotificationManager,
+                    "createNotificationChannelsForPackage",
+                    String::class.java,
+                    Int::class.java,
+                    findClass("android.content.pm.ParceledListSlice", null),
+                ).hookWithPermission(0, targetUidParamIndex = 1)
+            }
+            if (primary.isFailure) {
+                classINotificationManager.declaredMethods
+                    .filter { !it.isSynthetic && !it.isBridge && it.name == "createNotificationChannelsForPackage" }
+                    .forEach { method ->
+                        val uidIdx = if (method.parameterTypes.getOrNull(1) == Int::class.java) 1 else null
+                        method.hookWithPermission(0, targetUidParamIndex = uidIdx)
+                    }
+            }
         }
 
         installStep("cancelNotificationWithTag") {
@@ -421,18 +448,12 @@ object NmsPermissionHooker {
             ).hookWithPermission(0)
         }
 
-        installStep("NotificationManagerService.checkCallerIsSystem") {
+        installStep("NotificationManagerService.systemCheckMethods") {
             val nmsClass = findClass(
                 "com.android.server.notification.NotificationManagerService",
                 classINotificationManager.classLoader,
             )
-            findMethodExact(nmsClass, "checkCallerIsSystem").hook {
-                doBefore {
-                    if (fromMipush()) {
-                        result = null
-                    }
-                }
-            }
+            hookVoidSystemCheckMethods(nmsClass)
         }
 
         if (Build.VERSION.SDK_INT >= 36) {
