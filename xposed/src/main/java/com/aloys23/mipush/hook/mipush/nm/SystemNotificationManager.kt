@@ -21,6 +21,7 @@ import java.lang.reflect.InvocationTargetException
 
 object SystemNotificationManager {
     private const val TAG = "SystemNotificationManager"
+    private const val EXTRA_REQUEST_PROMOTED_ONGOING = "android.requestPromotedOngoing"
 
     init {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -47,10 +48,36 @@ object SystemNotificationManager {
         stripAppNameSubText(packageName, notification)
         handleCallNotification(packageName, notification)
 
+        if (isPromotedOngoingRequest(notification)) {
+            ensureCanBePromoted(packageName)
+        }
+
         //enqueueNotificationWithTag(String pkg, String opPkg, String tag, int id, Notification notification, int userId)
         val methodEnqueueNotificationWithTag = XposedHelpers.findMethodExact(notificationManager.javaClass, "enqueueNotificationWithTag", String::class.java, String::class.java, String::class.java, Int::class.java, Notification::class.java, Int::class.java)
         val opPkg = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ANDROID_PACKAGE_NAME else packageName
         methodEnqueueNotificationWithTag.invoke(notificationManager, packageName, opPkg, tag, id, notification, getUserId())
+    }
+
+    private fun isPromotedOngoingRequest(notification: Notification): Boolean {
+        return try {
+            notification.extras?.getBoolean(EXTRA_REQUEST_PROMOTED_ONGOING, false) == true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun ensureCanBePromoted(packageName: String) {
+        if (Build.VERSION.SDK_INT < 36) return
+        try {
+            val uid = getUid(packageName)
+            notificationManager.javaClass.methods.firstOrNull { method ->
+                method.name == "setCanBePromoted"
+                        && method.parameterTypes.size == 4
+                        && method.parameterTypes[0] == String::class.java
+            }?.invoke(notificationManager, packageName, uid, true, true)
+        } catch (t: Throwable) {
+            XLog.d(TAG, "ensureCanBePromoted skipped for $packageName: ${t.message}")
+        }
     }
 
     // 部分应用会把应用名塞进 subText，而 SystemUI 头部本就会显示应用名，
@@ -333,12 +360,8 @@ object SystemNotificationManager {
         groups.forEach {
             it.setField("mName", "Mi Push", String::class.java)
 
-            // 无法 hook
-            // void createNotificationChannelGroup(String pkg, int uid, NotificationChannelGroup group, boolean fromApp, boolean fromListener)
-            // notificationManager.callMethod("createNotificationChannelGroup", packageName, getUid(packageName), it, true, false)
             try {
                 // void updateNotificationChannelGroupForPackage(String pkg, int uid, in NotificationChannelGroup group);
-                // 因 createNotificationChannelGroup 的 fromApp 为 false，首次创建会产生 NullPointerException
                 notificationManager.callMethod(
                     "updateNotificationChannelGroupForPackage",
                     packageName,
@@ -347,7 +370,27 @@ object SystemNotificationManager {
                 )
             } catch (e: Throwable) {
                 // ignore
-                // Attempt to invoke virtual method 'boolean android.app.NotificationChannelGroup.isBlocked()' on a null object reference
+            }
+
+            // 部分 Android 16/17 ROM 上 update 不会创建缺失的组，回查不存在时走 createNotificationChannelGroup 兜底。
+            val provisioned = try {
+                getNotificationChannelGroup(packageName, it.id) != null
+            } catch (_: Throwable) {
+                false
+            }
+            if (!provisioned) {
+                try {
+                    notificationManager.callMethod(
+                        "createNotificationChannelGroup",
+                        packageName,
+                        getUid(packageName),
+                        it,
+                        true,
+                        false
+                    )
+                } catch (e: Throwable) {
+                    XLog.d(TAG, "createNotificationChannelGroup fallback failed for $packageName: ${e.message}")
+                }
             }
         }
     }
